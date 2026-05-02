@@ -1,5 +1,5 @@
 using Hangfire;
-using Hangfire.SqlServer;
+using Hangfire.InMemory;
 using HotelBookingSaaS.API.Adapters.Implementations;
 using HotelBookingSaaS.API.Data;
 using HotelBookingSaaS.API.Hubs;
@@ -25,11 +25,26 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
-// ─── Database ─────────────────────────────────────────────────────────────────
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
-        sql => sql.EnableRetryOnFailure(3)));
+// ─── Database — SQLite on mobile/dev, SQL Server in production ────────────────
+var useSqlite = builder.Configuration.GetValue<bool>("UseSqlite")
+    || !OperatingSystem.IsWindows();   // auto-detect: Windows → SQL Server, others → SQLite
+
+if (useSqlite)
+{
+    var dbPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        "hotelsaas.db");
+    Log.Information("Using SQLite at {Path}", dbPath);
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+        options.UseSqlite($"Data Source={dbPath}"));
+}
+else
+{
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+        options.UseSqlServer(
+            builder.Configuration.GetConnectionString("DefaultConnection"),
+            sql => sql.EnableRetryOnFailure(3)));
+}
 
 // ─── Authentication & Authorization ───────────────────────────────────────────
 var jwtKey = builder.Configuration["Jwt:Key"]
@@ -77,22 +92,12 @@ builder.Services.AddTransient<OperaAdapter>();
 builder.Services.AddTransient<MewsAdapter>();
 builder.Services.AddTransient<ChannexAdapter>();
 
-// Hangfire
-var hangfireConn = builder.Configuration.GetConnectionString("HangfireConnection")
-    ?? builder.Configuration.GetConnectionString("DefaultConnection");
-
+// Hangfire — InMemory (works everywhere, no SQL Server needed)
 builder.Services.AddHangfire(config => config
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
     .UseSimpleAssemblyNameTypeSerializer()
     .UseRecommendedSerializerSettings()
-    .UseSqlServerStorage(hangfireConn, new SqlServerStorageOptions
-    {
-        CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
-        SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
-        QueuePollInterval = TimeSpan.Zero,
-        UseRecommendedIsolationLevel = true,
-        DisableGlobalLocks = true
-    }));
+    .UseInMemoryStorage());
 
 builder.Services.AddHangfireServer();
 builder.Services.AddTransient<SyncHangfireJob>();
@@ -106,15 +111,12 @@ builder.Services.AddHttpClient("Oracle Opera");
 builder.Services.AddHttpClient("Mews");
 builder.Services.AddHttpClient("Channex");
 
-// CORS — allow React dev server + production domain
+// CORS — allow React dev server on any local address
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendPolicy", policy =>
     {
-        policy.WithOrigins(
-                "http://localhost:5173",    // Vite dev server
-                "http://localhost:3000",
-                builder.Configuration["Frontend:Url"] ?? "https://app.hotelsaas.jo")
+        policy.SetIsOriginAllowed(_ => true)   // allow localhost on any port for dev
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
@@ -162,24 +164,22 @@ builder.Services.AddHealthChecks()
 var app = builder.Build();
 
 // ─── Pipeline ─────────────────────────────────────────────────────────────────
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Hotel SaaS v1"));
-}
+// Always show Swagger (useful for mobile testing)
+app.UseSwagger();
+app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Hotel SaaS v1"));
 
-app.UseHttpsRedirection();
+// Skip HTTPS redirect on mobile/dev — no certificate
+if (!useSqlite)
+    app.UseHttpsRedirection();
+
 app.UseCors("FrontendPolicy");
 app.UseSerilogRequestLogging();
-
 app.UseMiddleware<ExceptionMiddleware>();
-
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
-    // Restrict dashboard to SuperAdmin in production
     Authorization = new[] { new HangfireAuthFilter() }
 });
 
@@ -193,14 +193,25 @@ RecurringJob.AddOrUpdate<SyncHangfireJob>(
     job => job.RunHourlySync(),
     Cron.Hourly);
 
-// ─── Auto-migrate on startup (dev only — use explicit migration in production) ─
-if (app.Environment.IsDevelopment())
+// ─── Database initialisation ──────────────────────────────────────────────────
+using (var scope = app.Services.CreateScope())
 {
-    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    await db.Database.MigrateAsync();
-    Log.Information("Database migrated");
+
+    if (useSqlite)
+    {
+        // EnsureCreated builds the schema directly from the model — no migrations needed.
+        // Fast and works perfectly on mobile / CI.
+        await db.Database.EnsureCreatedAsync();
+    }
+    else
+    {
+        // Production: run EF migrations normally
+        await db.Database.MigrateAsync();
+    }
+
+    Log.Information("Database ready ({Mode})", useSqlite ? "SQLite/EnsureCreated" : "SqlServer/Migrate");
 }
 
-Log.Information("Hotel Booking SaaS API started");
+Log.Information("Hotel Booking SaaS API started on {Mode}", useSqlite ? "SQLite" : "SQL Server");
 app.Run();

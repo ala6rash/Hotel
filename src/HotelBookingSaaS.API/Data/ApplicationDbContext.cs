@@ -25,8 +25,6 @@ public class ApplicationDbContext : DbContext
         {
             e.HasIndex(h => h.HotelName);
             e.HasIndex(h => h.IsActive);
-            e.Property(h => h.UpdatedDate)
-                .HasDefaultValueSql("GETUTCDATE()");
         });
 
         // Room — unique room number per hotel
@@ -42,9 +40,9 @@ public class ApplicationDbContext : DbContext
         // Booking — unique OTA booking ID per hotel+OTA combination
         modelBuilder.Entity<Booking>(e =>
         {
+            // No HasFilter — SQLite doesn't support filtered indexes
             e.HasIndex(b => new { b.HotelId, b.OTAType, b.OTABookingId })
-                .IsUnique()
-                .HasFilter("[OTABookingId] IS NOT NULL");
+                .IsUnique();
 
             e.HasIndex(b => b.CheckInDate);
             e.HasIndex(b => b.CheckOutDate);

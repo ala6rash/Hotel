@@ -12,6 +12,7 @@
     <!-- Entity Framework Core -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0" />
 
@@ -22,6 +23,7 @@
     <!-- Hangfire for background jobs -->
     <PackageReference Include="Hangfire.AspNetCore" Version="1.8.6" />
     <PackageReference Include="Hangfire.SqlServer" Version="1.8.6" />
+    <PackageReference Include="Hangfire.InMemory" Version="0.4.1" />
 
     <!-- SignalR for real-time -->
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.1.0" />
@@ -30,7 +32,6 @@
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="5.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
-    <PackageReference Include="Serilog.Sinks.MSSqlServer" Version="7.0.0" />
 
     <!-- HTTP client -->
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
