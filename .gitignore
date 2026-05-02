@@ -1,0 +1,27 @@
+# Node
+frontend/node_modules/
+node_modules/
+
+# .NET build output
+**/bin/
+**/obj/
+*.user
+
+# Logs
+logs/
+*.log
+
+# Environment / secrets
+appsettings.Production.json
+.env
+.env.local
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
